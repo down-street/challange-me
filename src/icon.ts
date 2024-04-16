@@ -5,6 +5,7 @@ import { EXTENSION_ID } from './tokens';
 import formatSvg from '../style/icons/format.svg';
 import lockedTagsSvg from '../style/icons/lockedtags.svg';
 import unlockedTagsSvg from '../style/icons/unlockedtags.svg';
+import openaiSvg from '../style/icons/openai.svg';
 
 export const formatIcon = new LabIcon({
   name: `${EXTENSION_ID}:format`,
@@ -17,4 +18,8 @@ export const lockedTagsIcon = new LabIcon({
 export const unlockedTagsIcon = new LabIcon({
   name: `${EXTENSION_ID}:unlockedtags`,
   svgstr: unlockedTagsSvg
+});
+export const openaiIcon = new LabIcon({
+  name: `${EXTENSION_ID}:openai`,
+  svgstr: openaiSvg
 });

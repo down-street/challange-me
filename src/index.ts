@@ -4,25 +4,75 @@ import {
 } from '@jupyterlab/application';
 import {
   createToolbarFactory,
-  Dialog,
+  
   IToolbarWidgetRegistry,
   showDialog,
-  ToolbarButton,
+  
   ToolbarRegistry
 } from '@jupyterlab/apputils';
-import { Cell, IAttachmentsCellModel } from '@jupyterlab/cells';
+import { Cell } from '@jupyterlab/cells';
 import { IEditorServices } from '@jupyterlab/codeeditor';
-import { INotebookTools, INotebookTracker } from '@jupyterlab/notebook';
+import {  INotebookTracker } from '@jupyterlab/notebook';
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { Widget } from '@lumino/widgets';
-import { AttachmentsEditor, AttachmentsTool } from './attachmentseditor';
+//import { AttachmentsEditor, AttachmentsTool } from './attachmentseditor';
 import { AttributeEditor } from './attributeeditor';
 import { CellBarExtension, DEFAULT_TOOLBAR } from './celltoolbartracker';
-import { CellMetadataEditor } from './metadataeditor';
-import { TagTool } from './tagbar';
-import { TagsModel } from './tagsmodel';
+//import { CellMetadataEditor } from './metadataeditor';
 import { CellToolbar, EXTENSION_ID, FACTORY_NAME } from './tokens';
+import { CommandIDs } from './commands';
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  apiKey: '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', dangerouslyAllowBrowser: true// This is the default and can be omitted
+});
+
+async function api(description: string, code: string) {
+
+  const completion = await openai.chat.completions.create({
+    messages:
+      [{ role: "system", content: "You are a python code performance judger.You need to judge the python code with the description of the code and response whether the code is wrong or right.If the code is right, judge whether the code is the best solution in time and memory usage.Response only with one word:wrong, OK or good" },
+      { role: "user", content: "description:" + description },
+      { role: "user", content: "code:" + code }
+      ],
+    model: "gpt-4-turbo-preview"
+    //tools: [{ type: "code_interpreter" }],
+  });
+  /*
+  const assistant = await openai.beta.assistants.create({
+    name: "python code performance judger",
+    instructions: "You are a python code performance judger.You need to judge the python code with the description of the code and response whether the code is wrong or right.If the code is right, judge whether the code is the best solution in time and memory usage.Response only with one word:wrong, OK or good",
+    tools: [{ type: "code_interpreter" }],
+    model: "gpt-4-turbo-preview"
+  });
+  const thread = await openai.beta.threads.create();
+  const message = await openai.beta.threads.messages.create(
+    thread.id,
+    {
+      role: "user",
+      content: description+"\n"+code
+    }
+  );
+  let run = await openai.beta.threads.runs.createAndPoll(
+    thread.id,
+    { 
+      assistant_id: assistant.id
+    }
+  );
+  if (run.status === 'completed') {
+    const messages = await openai.beta.threads.messages.list(
+      run.thread_id
+    );
+    for (const message of messages.data.reverse()) {
+      console.log(`${message.role} > ${message.content[0].text.value}`);
+    }
+  } else {
+    console.log(run.status);
+  }*/
+  console.log(completion.choices[0].message.content);
+  return "AI assistant:" + completion.choices[0].message.content;
+}
 
 const DEFAULT_TOOLBAR_ITEM_RANK = 50;
 
@@ -30,33 +80,6 @@ const DEFAULT_TOOLBAR_ITEM_RANK = 50;
  * Export the icons so they got loaded
  */
 export { formatIcon } from './icon';
-
-namespace CommandIDs {
-  /**
-   * Toggle cell attachments editor
-   */
-  export const toggleAttachments = `${EXTENSION_ID}:toggle-attachments`;
-  /**
-   * Toggle cell metadata editor
-   */
-  export const toggleMetadata = `${EXTENSION_ID}:toggle-metadata`;
-  /**
-   * Toggle cell toolbar
-   */
-  export const toggleToolbar = `${EXTENSION_ID}:toggle-toolbar`;
-  /**
-   * Toggle cell Raw NBConvert format
-   */
-  export const toggleRawFormat = `${EXTENSION_ID}:toggle-raw-format`;
-  /**
-   * Toggle cell slide type
-   */
-  export const toggleSlideType = `${EXTENSION_ID}:toggle-slide-type`;
-  /**
-   * Toggle cell tags
-   */
-  export const toggleTags = `${EXTENSION_ID}:toggle-tags`;
-}
 
 /**
  * JupyterLab enhanced cell toolbar plugin.
@@ -75,20 +98,6 @@ const extension: JupyterFrontEndPlugin<void> = {
     editorServices: IEditorServices | null
   ) => {
     const trans = (translator ?? nullTranslator).load('cell-toolbar');
-
-    // Register specific toolbar items
-    toolbarRegistry.registerFactory(
-      FACTORY_NAME,
-      CellToolbar.ViewItems.TAGS,
-      (cell: Widget) => {
-        const model = new TagsModel((cell as Cell).model);
-        const widget = new TagTool(model);
-        widget.disposed.connect(() => {
-          model.dispose();
-        });
-        return widget;
-      }
-    );
 
     // Extract the list from nbconvert service as in @jupyterlab/notebook-extension
     app.serviceManager.nbconvert
@@ -208,7 +217,7 @@ const extension: JupyterFrontEndPlugin<void> = {
         return w;
       }
     );
-
+    /*
     toolbarRegistry.registerFactory(
       FACTORY_NAME,
       CellToolbar.ViewItems.ATTACHMENTS,
@@ -232,8 +241,8 @@ const extension: JupyterFrontEndPlugin<void> = {
           return new Widget();
         }
       }
-    );
-
+    );*/
+/*
     if (editorServices) {
       toolbarRegistry.registerFactory(
         FACTORY_NAME,
@@ -258,7 +267,7 @@ const extension: JupyterFrontEndPlugin<void> = {
           })
       );
     }
-
+*/
     // Add the widget extension
     let notebookExtension: CellBarExtension;
     if (settingRegistry) {
@@ -451,7 +460,57 @@ const extension: JupyterFrontEndPlugin<void> = {
         return false;
       }
     });
+    app.commands.addCommand(CommandIDs.getResponse, {
+      label: trans.__('Get Response'),
+      execute: async () => {
+        const nb = notebookTracker.currentWidget;
+        if (nb && notebookExtension) {
+          // 获取活动的单元格
+          const activeCell = nb.content.activeCell;
+          const id = nb.content.activeCellIndex - 1;
+          let description = '';
+          var i: number;
 
+          for (i = 0; i <= id; i++) {
+            description += nb.content.widgets[i].model.value.text;
+          }
+          //console.log(description)
+          // 获取单元格内容
+          let cellContent = '';
+          if (activeCell) {
+            cellContent = activeCell.model.value.text;
+          }
+
+          console.log(description + cellContent);
+          //const code = Cell.C
+          const judgement = await api(description, cellContent);
+          console.log(judgement);
+          const currentDate = new Date();
+          const formattedDateTime = currentDate.toLocaleString("en-US", {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            second: 'numeric'
+          });
+          if (activeCell)
+            activeCell.model.value.text += "\n'''" + formattedDateTime + "\n" + judgement + "\n'''";
+          //api(code);
+        }
+
+      },
+      isToggled: () => {
+        const nb = notebookTracker.currentWidget;
+        if (nb && notebookExtension) {
+          const handler = notebookExtension.getToolbarsHandler(nb);
+          if (handler) {
+            return handler.isActive;
+          }
+        }
+        return false;
+      }
+    });
     /**
      * Upgrade the settings from the old format of v3
      * @param settings Extension settings
@@ -528,6 +587,7 @@ const extension: JupyterFrontEndPlugin<void> = {
 /**
  * Notebook tools plugin
  */
+/*
 const nbTools: JupyterFrontEndPlugin<void> = {
   id: `${EXTENSION_ID}:tools`,
   autoStart: true,
@@ -544,5 +604,6 @@ const nbTools: JupyterFrontEndPlugin<void> = {
   optional: [ITranslator],
   requires: [INotebookTools]
 };
-
-export default [extension, nbTools];
+*/
+//export default [extension, nbTools];
+export default [extension];

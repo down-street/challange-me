@@ -133,6 +133,11 @@
           "icon": "ui-components:delete"
         },
         {
+          "name": "call-gpt",
+          "command": "@jlab-enhanced/cell-toolbar:get-response",
+          "icon": "@jlab-enhanced/cell-toolbar:openai"
+        },
+        {
           "name": "spacer",
           "type": "spacer"
         }
