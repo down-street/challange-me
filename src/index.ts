@@ -23,9 +23,9 @@ import { CellBarExtension, DEFAULT_TOOLBAR } from './celltoolbartracker';
 import { CellToolbar, EXTENSION_ID, FACTORY_NAME } from './tokens';
 import { CommandIDs } from './commands';
 import OpenAI from "openai";
-
+import {privateapi} from "./api"
 const openai = new OpenAI({
-  apiKey: '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', dangerouslyAllowBrowser: true// This is the default and can be omitted
+  apiKey: privateapi.key, dangerouslyAllowBrowser: true// This is the default and can be omitted
 });
 
 async function api(description: string, code: string) {
