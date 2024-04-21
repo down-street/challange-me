@@ -1,7 +1,7 @@
-import { IObservableJSON, IObservableMap } from '@jupyterlab/observables';
+import { IObservableMap } from '@jupyterlab/observables';
 import { Message } from '@lumino/messaging';
 import { Widget } from '@lumino/widgets';
-
+import {ICellModel} from '@jupyterlab/cells'
 /**
  * Attribute editor widget options
  */
@@ -9,7 +9,7 @@ export interface IAttributeOptions {
   /**
    * Cell metadata object
    */
-  metadata: IObservableJSON;
+  model: ICellModel
   /**
    * Metadata key(s) to synchronize
    *
@@ -44,7 +44,7 @@ export interface IAttributeOptions {
  */
 export class AttributeEditor extends Widget {
   constructor(options: IAttributeOptions) {
-    const { metadata, keys, label, values, noValue, editable, placeholder } = {
+    const { model, keys, label, values, noValue, editable, placeholder } = {
       editable: false,
       ...options
     };
@@ -75,7 +75,7 @@ export class AttributeEditor extends Widget {
     }
     super({ node });
     this.addClass('jp-enh-attribute-editor');
-    this.metadata = metadata;
+    this.model = model;
     this.keys = keys;
     this.noValue = noValue;
     this.editable = editable;
@@ -90,16 +90,17 @@ export class AttributeEditor extends Widget {
     // Break at first found key
     for (const key of this.keys) {
       if (this._getValue(key) !== undefined) {
-        this.onMetadataChanged(this.metadata, {
+        this.onMetadataChanged(this.model, {
           key,
-          newValue: this.metadata.get(key),
+          newValue: this.model.getMetadata(key),
           oldValue: undefined,
           type: 'add'
         });
         break;
       }
     }
-    this.metadata.changed.connect(this.onMetadataChanged, this);
+    //this.model.metadataChanged.connect(this.onMetadataChanged, this);
+    //this.metadata.changed.connect(this.onMetadataChanged, this);
   }
 
   /**
@@ -109,8 +110,8 @@ export class AttributeEditor extends Widget {
     if (this.isDisposed) {
       return;
     }
-
-    this.metadata.changed.disconnect(this.onMetadataChanged, this);
+    //this.model.metadataChanged.disconnect(this.onMetadataChanged, this);
+    //this.metadata.changed.disconnect(this.onMetadataChanged, this);
     super.dispose();
   }
 
@@ -134,10 +135,10 @@ export class AttributeEditor extends Widget {
             const keyPath = k.split('/');
 
             if (keyPath.length > 1) {
-              let value = this.metadata.get(keyPath[0]) as any;
+              let value = this.model.getMetadata(keyPath[0]) as any;
               if (value === undefined) {
                 value = {};
-                this.metadata.set(keyPath[0], value);
+                this.model.setMetadata(keyPath[0], value);
               }
               const topValue = value;
               for (let p = 1; p < keyPath.length - 1; p++) {
@@ -151,12 +152,12 @@ export class AttributeEditor extends Widget {
               } else {
                 value[keyPath[keyPath.length - 1]] = newValue;
               }
-              this.metadata.set(keyPath[0], topValue);
+              this.model.setMetadata(keyPath[0], topValue);
             } else {
               if (newValue === null) {
-                this.metadata.delete(keyPath[0]);
+                this.model.deleteMetadata(keyPath[0]);
               } else {
-                this.metadata.set(keyPath[0], newValue);
+                this.model.setMetadata(keyPath[0], newValue);
               }
             }
           }
@@ -171,9 +172,9 @@ export class AttributeEditor extends Widget {
         if (this.editable) {
           for (const key of this.keys) {
             if (this._getValue(key) !== undefined) {
-              this.onMetadataChanged(this.metadata, {
+              this.onMetadataChanged(this.model, {
                 key,
-                newValue: this.metadata.get(key),
+                newValue: this.model.getMetadata(key),
                 oldValue: undefined,
                 type: 'change'
               });
@@ -204,7 +205,7 @@ export class AttributeEditor extends Widget {
   }
 
   protected onMetadataChanged(
-    metadata: IObservableJSON,
+    model:ICellModel,
     changes: IObservableMap.IChangedArgs<any>
   ): void {
     if (this.keys.includes(changes.key)) {
@@ -221,7 +222,7 @@ export class AttributeEditor extends Widget {
 
   protected editable: boolean;
   protected keys: string[];
-  protected metadata: IObservableJSON;
+  protected model:ICellModel;
   protected noValue?: string;
   protected selectNode: HTMLInputElement | HTMLSelectElement;
   protected values: [string, string][];
@@ -229,7 +230,7 @@ export class AttributeEditor extends Widget {
   private _getValue(key: string): any {
     const keyPath = key.split('/');
 
-    let value = this.metadata.get(keyPath[0]) as any;
+    let value = this.model.getMetadata(keyPath[0]) as any;
     for (let p = 1; p < keyPath.length; p++) {
       value = (value ?? {})[keyPath[p]];
     }

@@ -1,0 +1,8 @@
+{
+  "jupyter.lab.shortcuts": [],
+  "title": "@jlab-enhanced/cell-toolbar",
+  "description": "@jlab-enhanced/cell-toolbar settings.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
