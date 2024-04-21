@@ -4,15 +4,15 @@ import {
 } from '@jupyterlab/application';
 import {
   createToolbarFactory,
-  
+
   IToolbarWidgetRegistry,
   showDialog,
-  
+
   ToolbarRegistry
 } from '@jupyterlab/apputils';
 import { Cell } from '@jupyterlab/cells';
 import { IEditorServices } from '@jupyterlab/codeeditor';
-import {  INotebookTracker } from '@jupyterlab/notebook';
+import { INotebookTracker } from '@jupyterlab/notebook';
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { Widget } from '@lumino/widgets';
@@ -23,13 +23,13 @@ import { CellBarExtension, DEFAULT_TOOLBAR } from './celltoolbartracker';
 import { CellToolbar, EXTENSION_ID, FACTORY_NAME } from './tokens';
 import { CommandIDs } from './commands';
 import OpenAI from "openai";
-import {privateapi} from "./api"
+import { privateapi } from "./api"
 const openai = new OpenAI({
   apiKey: privateapi.key, dangerouslyAllowBrowser: true// This is the default and can be omitted
 });
 
 async function api(description: string, code: string) {
-
+/*
   const completion = await openai.chat.completions.create({
     messages:
       [{ role: "system", content: "You are a python code performance judger.You need to judge the python code with the description of the code and response whether the code is wrong or right.If the code is right, judge whether the code is the best solution in time and memory usage.Response only with one word:wrong, OK or good" },
@@ -38,8 +38,8 @@ async function api(description: string, code: string) {
       ],
     model: "gpt-4-turbo-preview"
     //tools: [{ type: "code_interpreter" }],
-  });
-  /*
+  });*/
+  
   const assistant = await openai.beta.assistants.create({
     name: "python code performance judger",
     instructions: "You are a python code performance judger.You need to judge the python code with the description of the code and response whether the code is wrong or right.If the code is right, judge whether the code is the best solution in time and memory usage.Response only with one word:wrong, OK or good",
@@ -47,31 +47,47 @@ async function api(description: string, code: string) {
     model: "gpt-4-turbo-preview"
   });
   const thread = await openai.beta.threads.create();
+  /*
   const message = await openai.beta.threads.messages.create(
     thread.id,
     {
       role: "user",
       content: description+"\n"+code
     }
-  );
+  );*/
   let run = await openai.beta.threads.runs.createAndPoll(
     thread.id,
     { 
-      assistant_id: assistant.id
+      assistant_id: assistant.id,
+      instructions: "You are a python code performance judger.First check if the code has finished.It means that the coder has finished all the code of the description and make sense,no matter it's right or not.Then check if the code runs without error.Use code interpreter to do this,running the python code.Last You need to judge the python code with the description of the code and response whether the code is wrong or right.If the code is right, judge whether the code is the best solution in time and memory usage.Response with giving opinions and give several options and give reasons:Please finish all the code and then challenge your self! give reasons if the code has not been finished;Syntax/Runtime Error!Check the code and run locally again. if the code can't run in code interperter;Please check your code and think again! if the code has a wrong result;Your code can may have a better solution!Challenge yourself! if the code is correct but has a better solution;Congratulations!You did a good job! if the code is optimal and correct\n and give the reason!give the reason must give the reason"+description+"\n"+code,
     }
   );
+  let answer=""
   if (run.status === 'completed') {
     const messages = await openai.beta.threads.messages.list(
       run.thread_id
     );
-    for (const message of messages.data.reverse()) {
-      console.log(`${message.role} > ${message.content[0].text.value}`);
+    for (const message of messages.data.reverse()) 
+    {
+      if(message.content[0].type=='text')
+      {
+        console.log(`${message.role} > ${message.content[0].text.value}`);
+        answer=message.content[0].text.value;
+      }  
     }
-  } else {
+    
+  } 
+  else {
     console.log(run.status);
-  }*/
-  console.log(completion.choices[0].message.content);
-  return "AI assistant:" + completion.choices[0].message.content;
+  }
+  const runStep = await openai.beta.threads.runs.steps.list(
+    run.thread_id,
+    run.id
+  );
+  console.log(runStep);
+  return "AI assistant: "+answer;
+  //console.log(completion.choices[0].message.content);
+  //return "AI assistant:" + completion.choices[0].message.content;
 }
 
 const DEFAULT_TOOLBAR_ITEM_RANK = 50;
@@ -143,7 +159,7 @@ const extension: JupyterFrontEndPlugin<void> = {
             (cell: Widget) => {
               if ((cell as Cell).model.type === 'raw') {
                 const w = new AttributeEditor({
-                  metadata: (cell as Cell).model.metadata,
+                  model: (cell as Cell).model,
                   keys: ['raw_mimetype', 'format'],
                   label: trans.__('Raw NBConvert Format'),
                   values: optionValueArray,
@@ -171,7 +187,7 @@ const extension: JupyterFrontEndPlugin<void> = {
           (cell: Widget) => {
             if ((cell as Cell).model.type === 'raw') {
               const w = new AttributeEditor({
-                metadata: (cell as Cell).model.metadata,
+                model: (cell as Cell).model,
                 keys: ['raw_mimetype', 'format'],
                 label: trans.__('Raw NBConvert Format'),
                 values: [
@@ -201,7 +217,7 @@ const extension: JupyterFrontEndPlugin<void> = {
       CellToolbar.ViewItems.SLIDESHOW,
       (cell: Widget) => {
         const w = new AttributeEditor({
-          metadata: (cell as Cell).model.metadata,
+          model: (cell as Cell).model,
           keys: ['slideshow/slide_type'],
           label: trans.__('Slide Type'),
           values: [
@@ -242,32 +258,32 @@ const extension: JupyterFrontEndPlugin<void> = {
         }
       }
     );*/
-/*
-    if (editorServices) {
-      toolbarRegistry.registerFactory(
-        FACTORY_NAME,
-        CellToolbar.ViewItems.METADATA,
-        (cell: Widget) =>
-          new ToolbarButton({
-            label: trans.__('Edit Metadata…'),
-            actualOnClick: true,
-            onClick: async (): Promise<void> => {
-              const body = new CellMetadataEditor(
-                (cell as Cell).model.metadata,
-                editorServices.factoryService.newInlineEditor,
-                translator ?? nullTranslator
-              );
-              body.addClass('jp-cell-enh-metadata-editor');
-              await showDialog({
-                title: trans.__('Edit Cell Metadata'),
-                body,
-                buttons: [Dialog.okButton({ label: trans.__('Close') })]
-              });
-            }
-          })
-      );
-    }
-*/
+    /*
+        if (editorServices) {
+          toolbarRegistry.registerFactory(
+            FACTORY_NAME,
+            CellToolbar.ViewItems.METADATA,
+            (cell: Widget) =>
+              new ToolbarButton({
+                label: trans.__('Edit Metadata…'),
+                actualOnClick: true,
+                onClick: async (): Promise<void> => {
+                  const body = new CellMetadataEditor(
+                    (cell as Cell).model.metadata,
+                    editorServices.factoryService.newInlineEditor,
+                    translator ?? nullTranslator
+                  );
+                  body.addClass('jp-cell-enh-metadata-editor');
+                  await showDialog({
+                    title: trans.__('Edit Cell Metadata'),
+                    body,
+                    buttons: [Dialog.okButton({ label: trans.__('Close') })]
+                  });
+                }
+              })
+          );
+        }
+    */
     // Add the widget extension
     let notebookExtension: CellBarExtension;
     if (settingRegistry) {
@@ -465,24 +481,18 @@ const extension: JupyterFrontEndPlugin<void> = {
       execute: async () => {
         const nb = notebookTracker.currentWidget;
         if (nb && notebookExtension) {
-          // 获取活动的单元格
           const activeCell = nb.content.activeCell;
           const id = nb.content.activeCellIndex - 1;
           let description = '';
           var i: number;
-
           for (i = 0; i <= id; i++) {
-            description += nb.content.widgets[i].model.value.text;
+            description += nb.content.widgets[i].model.toJSON().source;
           }
-          //console.log(description)
-          // 获取单元格内容
           let cellContent = '';
           if (activeCell) {
-            cellContent = activeCell.model.value.text;
+            cellContent += activeCell.model.toJSON().source;
           }
-
           console.log(description + cellContent);
-          //const code = Cell.C
           const judgement = await api(description, cellContent);
           console.log(judgement);
           const currentDate = new Date();
@@ -494,9 +504,13 @@ const extension: JupyterFrontEndPlugin<void> = {
             minute: 'numeric',
             second: 'numeric'
           });
-          if (activeCell)
-            activeCell.model.value.text += "\n'''" + formattedDateTime + "\n" + judgement + "\n'''";
-          //api(code);
+          if (activeCell) 
+          {
+            
+            const modelJson = activeCell.model.toJSON();
+            modelJson.source += "\n'''" + formattedDateTime + "\n" + judgement + "\n'''"; 
+            activeCell.model.sharedModel.setSource(modelJson.source.toString());
+          }
         }
 
       },

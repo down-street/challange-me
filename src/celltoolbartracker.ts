@@ -4,7 +4,6 @@ import { DocumentRegistry } from '@jupyterlab/docregistry';
 import { NotebookPanel } from '@jupyterlab/notebook';
 import {
   IObservableList,
-  IObservableUndoableList,
   ObservableList
 } from '@jupyterlab/observables';
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
@@ -14,7 +13,7 @@ import {
   caretUpEmptyThinIcon,
   runIcon
 } from '@jupyterlab/ui-components';
-import { each, findIndex, toArray } from '@lumino/algorithm';
+import { findIndex, toArray } from '@lumino/algorithm';
 import { CommandRegistry } from '@lumino/commands';
 import { JSONExt } from '@lumino/coreutils';
 import { IDisposable } from '@lumino/disposable';
@@ -25,6 +24,7 @@ import { PositionedButton } from './positionedbutton';
 //import { TagTool } from './tagbar';
 import { CellToolbar, FACTORY_NAME } from './tokens';
 import { CommandIDs } from './commands';
+import { CellList } from '@jupyterlab/notebook/lib/celllist';
 
 const DEFAULT_HELPER_BUTTONS: CellToolbar.IButton[] = [
   // Originate from @jupyterlab/notebook-extension
@@ -52,41 +52,41 @@ const DEFAULT_HELPER_BUTTONS: CellToolbar.IButton[] = [
 export const DEFAULT_TOOLBAR: (ISettingRegistry.IToolbarItem & {
   cellType?: 'code' | 'markdown' | 'raw';
 })[] = [
-  {
-    name: 'markdown-to-code',
-    cellType: 'markdown',
-    command: 'notebook:change-cell-to-code',
-    icon: 'ui-components:code'
-  },
-  {
-    name: 'code-to-markdown',
-    cellType: 'code',
-    command: 'notebook:change-cell-to-markdown',
-    icon: 'ui-components:markdown'
-  },
-  // Not available by default
-  // {
-  //   name: 'format-code',
-  //   cellType: 'code',
-  //   command: 'jupyterlab_code_formatter:format',
-  //   icon: '@jlab-enhanced/cell-toolbar:format',
-  //   tooltip: 'Format Cell'
-  // },
-  {
-    name: 'delete-cell',
-    command: 'notebook:delete-cell',
-    icon: 'ui-components:delete'
-  },
-  {
-    name: "call-gpt",
-    command: CommandIDs.getResponse,//getResponseCommand,
-    icon: "@jlab-enhanced/cell-toolbar:openai"
-  },
-  {
-    name: 'spacer',
-    type: 'spacer'
-  }
-];
+    {
+      name: 'markdown-to-code',
+      cellType: 'markdown',
+      command: 'notebook:change-cell-to-code',
+      icon: 'ui-components:code'
+    },
+    {
+      name: 'code-to-markdown',
+      cellType: 'code',
+      command: 'notebook:change-cell-to-markdown',
+      icon: 'ui-components:markdown'
+    },
+    // Not available by default
+    // {
+    //   name: 'format-code',
+    //   cellType: 'code',
+    //   command: 'jupyterlab_code_formatter:format',
+    //   icon: '@jlab-enhanced/cell-toolbar:format',
+    //   tooltip: 'Format Cell'
+    // },
+    {
+      name: 'delete-cell',
+      command: 'notebook:delete-cell',
+      icon: 'ui-components:delete'
+    },
+    {
+      name: "call-gpt",
+      command: CommandIDs.getResponse,//getResponseCommand,
+      icon: "@jlab-enhanced/cell-toolbar:openai"
+    },
+    {
+      name: 'spacer',
+      type: 'spacer'
+    }
+  ];
 
 /**
  * Widget cell toolbar class
@@ -204,9 +204,15 @@ export class CellToolbarTracker implements IDisposable {
       const cells = this.panel.context.model.cells;
       if (cells) {
         if (this._isActive) {
-          each(cells.iter(), model => this._addToolbar(model));
+
+          for (const model of cells) {
+            this._addToolbar(model);
+          }
         } else {
-          each(cells.iter(), model => this._removeToolbar(model));
+
+          for (const model of cells) {
+            this._removeToolbar(model);
+          }
         }
       }
     }
@@ -232,7 +238,9 @@ export class CellToolbarTracker implements IDisposable {
     const cells = this.panel?.context.model.cells;
     if (cells) {
       cells.changed.disconnect(this.updateConnectedCells, this);
-      each(cells.iter(), model => this._removeToolbar(model));
+      for (const model of cells) {
+        this._removeToolbar(model);
+      }
     }
 
     // this.panel?.context.fileChanged.disconnect(this._onFileChanged);
@@ -263,7 +271,7 @@ export class CellToolbarTracker implements IDisposable {
    * @param changed Modification of the list
    */
   updateConnectedCells(
-    cells: IObservableUndoableList<ICellModel>,
+    cells: CellList,
     changed: IObservableList.IChangedArgs<ICellModel>
   ): void {
     if (this.isActive) {
@@ -403,7 +411,7 @@ export class CellToolbarTracker implements IDisposable {
                 name => item.name === name
               );
               if (existingIndex >= 0) {
-                toArray(toolbar.children())[existingIndex].parent = null;
+                Array.from(toolbar.children())[existingIndex].parent = null;
               }
 
               const itemType = this.configuration.cellType[item.name];
@@ -425,7 +433,7 @@ export class CellToolbarTracker implements IDisposable {
 
       updateToolbar(items, {
         newIndex: 0,
-        newValues: toArray(items),
+        newValues: Array.from(items),
         oldIndex: 0,
         oldValues: [],
         type: 'add'
@@ -465,11 +473,11 @@ export class CellToolbarTracker implements IDisposable {
     }
 
     // Reset toolbar when settings changes
-    if (this.panel?.context.model.cells) {
-      each(this.panel?.context.model.cells.iter(), model => {
+    if (this.panel && this.panel.context.model.cells) {
+      for (const model of this.panel.context.model.cells) {
         this._removeToolbar(model);
         this._addToolbar(model);
-      });
+      }
     }
 
     // Update tags
