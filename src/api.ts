@@ -1,4 +1,4 @@
 export namespace privateapi
 {
-    export const key='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'
+    export const key='sk-proj-lUDPjEkU1IDmCB3TtbJwT3BlbkFJxxaWSgSNTxP5II2yBbtD'
 }
