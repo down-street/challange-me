@@ -10,7 +10,7 @@ node_modules/
 jlab_enhanced_cell_toolbar/labextension
 # Version file is handled by hatchling
 jlab_enhanced_cell_toolbar/_version.py
-/src/api.ts
+src/api.ts
 
 # Created by https://www.gitignore.io/api/python
 # Edit at https://www.gitignore.io/?templates=python
