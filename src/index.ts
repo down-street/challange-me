@@ -20,82 +20,246 @@ import { CellToolbar, EXTENSION_ID, FACTORY_NAME } from './tokens';
 import { CommandIDs } from './commands';
 import OpenAI from "openai";
 import { privateapi } from "./api"
+let parallel_mode = 1;
 const openai = new OpenAI({
-  apiKey: privateapi.key, dangerouslyAllowBrowser: true// This is the default and can be omitted
+  apiKey: privateapi.key, dangerouslyAllowBrowser: true
 });
 async function code_checking(code: string, current_code: string) {
   /*
   const prompt="First, remove the content which are not the code. "+
                "Second, you need to run the rest of the code with code interpreter and only give the output,which means give printf value only as output"+
-               "or return 'Error!' if the code has syntax error or runtime error";*/       
-
-  const prompt = "You are a python code runner, you need to use code interpreter to run the code and give print() output directly";
-  const assistant = await openai.beta.assistants.create({
-    name: "coderunner",
-    instructions: prompt,
-    tools: [{ type: "code_interpreter" }, { type: "file_search" }],
-    model: "gpt-4-turbo",
-    temperature: 0
-    //response_format: { "type": "json_object" }
-  });
-  const thread = await openai.beta.threads.create();
-  await openai.beta.threads.messages.create(
-    thread.id,
-    {
-      role: "assistant",
-      content: "Forget all previous message before.First,you need to remove the watermark ,comments,and AI assistant comment or any other content not belong to python code,but leave the python code even if it's incomplete." +
-        "Then use code interpreter to run the code,even if the code is wrong."
-      /*
-      "You must not correct any wrong or incomplete code.If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' "+
-      "Second,run the rest of the code and give print() output directly,only give the output from print() without any words."*/
+               "or return 'Error!' if the code has syntax error or runtime error";*/
+  if (parallel_mode) {
+    const prompt = "You are a python code runner, you need to use code interpreter to run the code and give print() output directly";
+    const assistant = await openai.beta.assistants.create({
+      name: "coderunner",
+      instructions: prompt,
+      tools: [{ type: "code_interpreter" }, { type: "file_search" }],
+      model: "gpt-4-turbo",
+      temperature: 0
+      //response_format: { "type": "json_object" }
+    });
+    const threada = await openai.beta.threads.create();
+    const threadb = await openai.beta.threads.create();
+    await openai.beta.threads.messages.create(
+      threada.id,
+      {
+        role: "assistant",
+        content: "Forget all previous message before.First,you need to remove the watermark ,comments,and Challenge-me comment or any other content not belong to python code,but leave the python code even if it's incomplete." +
+          "Then use code interpreter to run exactly the original code,even if the code is wrong.Do not change any code!Do not change any code!Do not correct any code!"
+        /*
+        "You must not correct any wrong or incomplete code.If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' "+
+        "Second,run the rest of the code and give print() output directly,only give the output from print() without any words."*/
+      }
+    )
+    await openai.beta.threads.messages.create(
+      threada.id,
+      {
+        role: "user",
+        content: code + '\n' + current_code
+      }
+    )
+    await openai.beta.threads.messages.create(
+      threada.id,
+      {
+        role: "assistant",
+        content: "If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' " +
+          "OR give print() output directly,only give the directly final outputs from print() function in my python code without any other words.Do not give other outputs"
+      }
+    )
+    await openai.beta.threads.messages.create(
+      threadb.id,
+      {
+        role: "assistant",
+        content: "Forget all previous message before.First,you need to remove the watermark ,comments,and Challenge-me comment or any other content not belong to python code,but leave the python code even if it's incomplete." +
+          "Then use code interpreter to run exactly the original code,even if the code is wrong.Do not change any code!Do not change any code!Do not correct any code!"
+        /*
+        "You must not correct any wrong or incomplete code.If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' "+
+        "Second,run the rest of the code and give print() output directly,only give the output from print() without any words."*/
+      }
+    )
+    await openai.beta.threads.messages.create(
+      threadb.id,
+      {
+        role: "user",
+        content: code + '\n' + current_code
+      }
+    )
+    await openai.beta.threads.messages.create(
+      threadb.id,
+      {
+        role: "assistant",
+        content: "If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' " +
+          "OR give print() output directly,only give the directly final outputs from print() function in my python code without any other words.Do not give other outputs"
+      }
+    )
+    let runa = await openai.beta.threads.runs.createAndPoll(
+      threada.id,
+      { assistant_id: assistant.id }
+    );
+    let runb = await openai.beta.threads.runs.createAndPoll(
+      threadb.id,
+      { assistant_id: assistant.id }
+    );
+    var answera = ""
+    var answerb = ""
+    if (runa.status === 'completed' && runb.status == 'completed') {
+      const messagesa = await openai.beta.threads.messages.list(
+        runa.thread_id
+      );
+      for (const message of messagesa.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          answera = message.content[0].text.value;
+        }
+      }
+      const messagesb = await openai.beta.threads.messages.list(
+        runb.thread_id
+      );
+      for (const message of messagesb.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          answerb = message.content[0].text.value;
+        }
+      }
     }
-  )
-  await openai.beta.threads.messages.create(
-    thread.id,
-    {
-      role: "user",
-      content: code + '\n' + current_code
+    else {
+      console.log(runa.status);
     }
-  )/*
+    console.log(answera)
+    console.log(answerb)
+    const runStep = await openai.beta.threads.runs.steps.list(
+      runa.thread_id,
+      runa.id
+    );
+    console.log(runStep);
+    if (answera != answerb) {
+      const threadc = await openai.beta.threads.create();
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "assistant",
+          content: "If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' " +
+            "OR give print() output directly,only give the directly final outputs from print() function in my python code without any other words.Do not give other outputs"
+        }
+      )
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "assistant",
+          content: "Forget all previous message before.First,you need to remove the watermark ,comments,and Challenge-me comment or any other content not belong to python code,but leave the python code even if it's incomplete." +
+            "Then use code interpreter to run the code,even if the code is wrong."
+          /*
+          "You must not correct any wrong or incomplete code.If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' "+
+          "Second,run the rest of the code and give print() output directly,only give the output from print() without any words."*/
+        }
+      )
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "user",
+          content: code + '\n' + current_code
+        }
+      )
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "assistant",
+          content: "If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' " +
+            "OR give print() output directly,only give the directly final outputs from print() function in my python code without any other words.Do not give other outputs"
+        }
+      )
+      let runc = await openai.beta.threads.runs.createAndPoll(
+        threadc.id,
+        { assistant_id: assistant.id }
+      );
+      var answerc = ""
+      if (runc.status == 'completed') {
+        const messagesa = await openai.beta.threads.messages.list(
+          runc.thread_id
+        );
+        for (const message of messagesa.data.reverse()) {
+          if (message.content[0].type == 'text') {
+            answerc = message.content[0].text.value;
+          }
+        }
+      }
+      else {
+        console.log(runc.status);
+      }
+      console.log(answerc)
+      return answerc;
+    }
+    else
+      return answera;
+  }
+  else {
+    const prompt = "You are a python code runner, you need to use code interpreter to run the code and give print() output directly";
+    const assistant = await openai.beta.assistants.create({
+      name: "coderunner",
+      instructions: prompt,
+      tools: [{ type: "code_interpreter" }, { type: "file_search" }],
+      model: "gpt-4-turbo",
+      temperature: 0
+      //response_format: { "type": "json_object" }
+    });
+    const thread = await openai.beta.threads.create();
+    await openai.beta.threads.messages.create(
+      thread.id,
+      {
+        role: "assistant",
+        content: "Forget all previous message before.First,you need to remove the watermark ,comments,and Challenge-me comment or any other content not belong to python code,but leave the python code even if it's incomplete." +
+          "Then use code interpreter to run the code,even if the code is wrong."
+        /*
+        "You must not correct any wrong or incomplete code.If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' "+
+        "Second,run the rest of the code and give print() output directly,only give the output from print() without any words."*/
+      }
+    )
+    await openai.beta.threads.messages.create(
+      thread.id,
+      {
+        role: "user",
+        content: code + '\n' + current_code
+      }
+    )/*
   let run = await openai.beta.threads.runs.createAndPoll(
     thread.id,
     { assistant_id: assistant.id}
   );*/
-  await openai.beta.threads.messages.create(
-    thread.id,
-    {
-      role: "assistant",
-      content: "If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' " +
-        "OR give print() output directly,only give the directly final outputs from print() function in my python code without any other words.Do not give other outputs"
-    }
-  )
-  let run2 = await openai.beta.threads.runs.createAndPoll(
-    thread.id,
-    { assistant_id: assistant.id }
-  );
-  var answer2 = ""
-  if (run2.status === 'completed') {
-    const messages = await openai.beta.threads.messages.list(
-      run2.thread_id
-    );
-    for (const message of messages.data.reverse()) {
-      if (message.content[0].type == 'text') {
-        console.log(`${message.role} > ${message.content[0].text.value}`);
-        answer2 = message.content[0].text.value;
+    await openai.beta.threads.messages.create(
+      thread.id,
+      {
+        role: "assistant",
+        content: "If the rest code has syntax or runtime errors,do not correct and return only single word 'Error_for_code' " +
+          "OR give print() output directly,only give the directly final outputs from print() function in my python code without any other words.Do not give other outputs"
       }
-    }
+    )
+    let run2 = await openai.beta.threads.runs.createAndPoll(
+      thread.id,
+      { assistant_id: assistant.id }
+    );
+    var answer2 = ""
+    if (run2.status === 'completed') {
+      const messages = await openai.beta.threads.messages.list(
+        run2.thread_id
+      );
+      for (const message of messages.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          console.log(`${message.role} > ${message.content[0].text.value}`);
+          answer2 = message.content[0].text.value;
+        }
+      }
 
+    }
+    else {
+      console.log(run2.status);
+    }
+    const runStep = await openai.beta.threads.runs.steps.list(
+      run2.thread_id,
+      run2.id
+    );
+    console.log(runStep);
+    console.log(answer2)
+    return answer2
   }
-  else {
-    console.log(run2.status);
-  }
-  const runStep = await openai.beta.threads.runs.steps.list(
-    run2.thread_id,
-    run2.id
-  );
-  console.log(runStep);
-  console.log(answer2)
-  return answer2
 }
 class performancejudger {
   static assistant = openai.beta.assistants.create({
@@ -118,7 +282,7 @@ class performancejudger {
   static last_id = -1;
   static last_improvement = -1;
 };
-async function api(description: string, code: string, current_code: string, id: number) {
+async function call_gpt(description: string, code: string, current_code: string, id: number) {
   /*
     const completion = await openai.chat.completions.create({
       messages:
@@ -129,261 +293,673 @@ async function api(description: string, code: string, current_code: string, id: 
       model: "gpt-4-turbo-preview"
       //tools: [{ type: "code_interpreter" }],
     });*/
-  let ans_check = await code_checking(code, current_code);
-  if (ans_check == 'Error_for_code') {
-    return "AI assistant: " + "Syntax/Runtime Error!Check the code and run locally again.";
-  }
-  const prompt = "You are a python code performance judger." +
-    "You need to judge the python code with the description of the code and the output and response whether the code is wrong or right." +
-    "If the code is right, judge whether the code is the best solution in time and memory usage.";
-  const assistant = await openai.beta.assistants.create({
-    name: "python code performance judger",
-    description: prompt,
-    model: "gpt-4-turbo"
-  });
-
-  const thread = await openai.beta.threads.create();
-
-  await openai.beta.threads.messages.create(
-    thread.id,
-    {
-      role: "user",
-      content: "description:" + description + "\n" + "code:" + code + '\n' + current_code
+  if (parallel_mode) {
+    let ans_check = await code_checking(code, current_code);
+    if (ans_check == 'Error_for_code') {
+      return "Challenge-me: " + "Syntax/Runtime Error!Check the code and run locally again.";
     }
-  );
-  await openai.beta.threads.messages.create(
-    thread.id,
-    {
-      role: "assistant",
-      content: "judge whether the code is completed.It means the code has finished all what description needs." + '\n' +
-        "For example,if the code has lost serveral code of one function,like not updating the result or calculate answers.Return only two words:good or bad"
-    }
-  );
-  let run = await openai.beta.threads.runs.createAndPoll(
-    thread.id,
-    { assistant_id: assistant.id }
-  );
-  let answer = ""
-  if (run.status === 'completed') {
-    const messages = await openai.beta.threads.messages.list(
-      run.thread_id
-    );
-    for (const message of messages.data.reverse()) {
-      if (message.content[0].type == 'text') {
-        console.log(`${message.role} > ${message.content[0].text.value}`);
-        answer = message.content[0].text.value;
+    const prompt = "You are a python code performance judger." +
+      "You need to judge the python code with the description of the code and the output and response whether the code is wrong or right." +
+      "If the code is right, judge whether the code is the best solution in time and memory usage.";
+    const assistant = await openai.beta.assistants.create({
+      name: "python code performance judger",
+      description: prompt,
+      model: "gpt-4-turbo"
+    });
+
+    let threada = await openai.beta.threads.create();
+    let threadb = await openai.beta.threads.create();
+    await openai.beta.threads.messages.create(
+      threada.id,
+      {
+        role: "user",
+        content: "description:" + description + "\n" + "code:" + code + '\n' + current_code
       }
-    }
-
-  }
-  else {
-    console.log(run.status);
-  }
-  console.log(answer)
-  if (answer == 'bad' || answer == 'Bad') {
-    return "AI assistant: " + "It seems that you have missed some parts of the code. Please finish all the code and then challenge yourself!";
-  }
-  await openai.beta.threads.messages.create(
-    thread.id,
-    {
-      role: "assistant",
-      content: "judge whether the code outputs the correct result as the description needs.Just judge by outputthye user give,description, and code,return only single word: correct or wrong"
-    }
-  );
-  await openai.beta.threads.messages.create(
-    thread.id,
-    {
-      role: "user",
-      content: ans_check
-    }
-  );
-  let run2 = await openai.beta.threads.runs.createAndPoll(
-    thread.id,
-    { assistant_id: assistant.id }
-  );
-  let answer2 = ""
-  if (run2.status === 'completed') {
-    const messages = await openai.beta.threads.messages.list(
-      run.thread_id
     );
-    for (const message of messages.data.reverse()) {
-      if (message.content[0].type == 'text') {
-        console.log(`${message.role} > ${message.content[0].text.value}`);
-        answer2 = message.content[0].text.value;
+    await openai.beta.threads.messages.create(
+      threada.id,
+      {
+        role: "assistant",
+        content: "judge whether the code is completed.It means the code has finished all what description needs." + '\n' +
+          "For example,if the code has lost serveral code of one function,like not updating the result or calculate answers.Return only two words:good or bad"
       }
-    }
-
-  }
-  else {
-    console.log(run.status);
-  }
-  if (answer2 == 'wrong' || answer2 == 'Wrong') {
-    return "AI assistant: " + "You seem not to implement the right code. Try to modify the code and challenge again!";
-  }/*
-  const completion = await openai.chat.completions.create(
-  {
-    messages: [{"role": "system", "content": "You are a python code performance judger.First,calculate the time,memory usage,accuracy or any other metrics judging the code performance.Then compared with the best solution of the description of the code, judge whether the code is the best solution in time,memory usage,accuracy or any other metrics judging the code performance.Return with a json with all dimension's performance of the code.Using best and OK to judge the code,give the explanation part"},
-        {"role": "assistant", "content": "Here's the description of the code: "+description},
-        {"role": "user", "content": code+'\n'+current_code},
-        ],
-    model: "gpt-4-turbo",
-    response_format:{"type":"json_object"}
-  });
-  console.log(completion.choices[0]);
-  let obj = JSON.parse(completion.choices[0].message.content as string);
-  let improvement=0;
-  for(let val in obj)
-    {
-      console.log(obj[val])
-      if(obj[val]=='OK')
-        {
-          improvement=improvement+1;
+    );
+    await openai.beta.threads.messages.create(
+      threadb.id,
+      {
+        role: "user",
+        content: "description:" + description + "\n" + "code:" + code + '\n' + current_code
+      }
+    );
+    await openai.beta.threads.messages.create(
+      threadb.id,
+      {
+        role: "assistant",
+        content: "judge whether the code is completed.It means the code has finished all what description needs." + '\n' +
+          "For example,if the code has lost serveral code of one function,like not updating the result or calculate answers.Return only two words:good or bad"
+      }
+    );
+    let runa = await openai.beta.threads.runs.createAndPoll(
+      threada.id,
+      { assistant_id: assistant.id }
+    );
+    let runb = await openai.beta.threads.runs.createAndPoll(
+      threadb.id,
+      { assistant_id: assistant.id }
+    );
+    let answera = ""
+    let answerb = ""
+    if (runa.status === 'completed' && runb.status === 'completed') {
+      const messagesa = await openai.beta.threads.messages.list(
+        runa.thread_id
+      );
+      for (const message of messagesa.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          answera = message.content[0].text.value;
         }
-    }
-  if(improvement==0)
-    {
-      return "AI assistant: "+"Good job!Nothing to improve";
-    }
-  else if(improvement==1)
-    return "AI assistant: "+"Correct! Close to the best answer, try to improve your code!";
-  else
-    return "AI assistant: "+"Code is correct, and try to challange yourself with better ideas!";*/
-  //
-  await openai.beta.threads.messages.create(
-    (await performancejudger.threadx).id,
-    {
-      role: "assistant",
-      content: "Here's the description of the code and return the same type as the first response with fuzzy_tips,clear_tips,specific_tips,if_same and: aspects of metrics and explanations" + description
-    }
-  );
-  await openai.beta.threads.messages.create(
-    (await performancejudger.threadx).id,
-    {
-      role: "user",
-      content: code + '\n' + current_code
-    }
-  );
-  const threadMessages = await openai.beta.threads.messages.list((await performancejudger.threadx).id);
-  console.log(threadMessages.data);
-  let x = new performancejudger;
-  console.log(x)
-  console.log(performancejudger.last_code)
-  console.log(current_code)
-  console.log(performancejudger.last_code == current_code || performancejudger.last_code + "\n" == current_code)
-  console.log(performancejudger.call_time)
-  if (performancejudger.last_code + "\n" == current_code || performancejudger.last_code == current_code && performancejudger.call_time > 0) {
-
-    if (performancejudger.last_improvement == 0) {
-      return "AI assistant: " + "Good job!Nothing to improve";
-    }
-    performancejudger.call_time++;
-    console.log(performancejudger.call_time)
-    if (performancejudger.call_time == 1) {
-      return "AI assistant: " + performancejudger.fuzzy_tips;
-    }
-    else if (performancejudger.call_time == 2) {
-      return "AI assistant: " + performancejudger.clear_tips;
-    }
-    else if (performancejudger.call_time == 3) {
-      return "AI assistant: " + performancejudger.specific_tips;
-    }
-    else {
-      return "AI assistant: No more tips,please challenge yourself with tips above!"
-    }
-  }
-  let runx = await openai.beta.threads.runs.createAndPoll(
-    (await performancejudger.threadx).id,
-    { assistant_id: (await performancejudger.assistant).id }
-  );
-  let answerx = ""
-  if (runx.status === 'completed') {
-    const messages = await openai.beta.threads.messages.list(
-      runx.thread_id
-    );
-    for (const message of messages.data.reverse()) {
-      if (message.content[0].type == 'text') {
-        console.log(`${message.role} > ${message.content[0].text.value}`);
-        answerx = message.content[0].text.value;
+      }
+      const messagesb = await openai.beta.threads.messages.list(
+        runb.thread_id
+      );
+      for (const message of messagesb.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          answerb = message.content[0].text.value;
+        }
       }
     }
+    else {
+      console.log(runa.status);
+    }
+    console.log(answera)
+    console.log(answerb)
+    if (answera == 'Bad') {
+      answera = 'bad';
+    }
+    if (answera == 'Good') {
+      answera = 'good';
+    }
+    if (answerb == 'Bad') {
+      answerb = 'bad';
+    }
+    if (answerb == 'Good') {
+      answerb = 'good';
+    }
+    let answer = ''
+    if (answera == answerb) {
+      answer = answera;
+    }
+    else {
+      let threadc = await openai.beta.threads.create();
 
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "user",
+          content: "description:" + description + "\n" + "code:" + code + '\n' + current_code
+        }
+      );
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "assistant",
+          content: "judge whether the code is completed.It means the code has finished all what description needs." + '\n' +
+            "For example,if the code has lost serveral code of one function,like not updating the result or calculate answers.Return only two words:good or bad"
+        }
+      );
+      let runc = await openai.beta.threads.runs.createAndPoll(
+        threadc.id,
+        { assistant_id: assistant.id }
+      );
+      let answerc = ""
+      if (runc.status === 'completed') {
+        const messagesc = await openai.beta.threads.messages.list(
+          runc.thread_id
+        );
+        for (const message of messagesc.data.reverse()) {
+          if (message.content[0].type == 'text') {
+            answerc = message.content[0].text.value;
+          }
+        }
+
+      }
+      else {
+        console.log(runc.status);
+      }
+      console.log(answerc)
+      if (answerc == 'Bad') {
+        answerc = 'bad';
+      }
+      if (answerc == 'Good') {
+        answerc = 'good';
+      }
+      answer = answerc;
+      if (answerc == answera) {
+        threadb = threadc;
+      }
+      else {
+        threada = threadc;
+      }
+    }
+    if (answer == 'bad') {
+      return "Challenge-me: " + "It seems that you have missed some parts of the code. Please finish all the code and then challenge yourself!";
+    }//incomplete checker
+
+    await openai.beta.threads.messages.create(
+      threada.id,
+      {
+        role: "assistant",
+        content: "judge whether the code outputs the correct result as the description needs.Just judge by the output user gives,description,and code,return only a single word:correct or wrong"
+      }
+    );
+    await openai.beta.threads.messages.create(
+      threada.id,
+      {
+        role: "user",
+        content: ans_check
+      }
+    );
+    await openai.beta.threads.messages.create(
+      threadb.id,
+      {
+        role: "assistant",
+        content: "judge whether the code outputs the correct result as the description needs.Just judge by the output user gives,description,and code,return only a single word:correct or wrong"
+      }
+    );
+    await openai.beta.threads.messages.create(
+      threadb.id,
+      {
+        role: "user",
+        content: ans_check
+      }
+    );
+    let runa_nxt = await openai.beta.threads.runs.createAndPoll(
+      threada.id,
+      { assistant_id: assistant.id }
+    );
+    let runb_nxt = await openai.beta.threads.runs.createAndPoll(
+      threadb.id,
+      { assistant_id: assistant.id }
+    );
+    let answera_nxt = ""
+    let answerb_nxt = ""
+    if (runa_nxt.status === 'completed' && runa_nxt.status === 'completed') {
+      const messagesa = await openai.beta.threads.messages.list(
+        runa_nxt.thread_id
+      );
+      for (const message of messagesa.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          answera_nxt = message.content[0].text.value;
+        }
+      }
+      const messagesb = await openai.beta.threads.messages.list(
+        runb_nxt.thread_id
+      );
+      for (const message of messagesb.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          answerb_nxt = message.content[0].text.value;
+        }
+      }
+    }
+    else {
+      console.log(runa_nxt.status);
+    }
+    console.log(answera_nxt)
+    console.log(answerb_nxt)
+    if (answera_nxt == 'Wrong') {
+      answera_nxt = 'wrong'
+    }
+    if (answera_nxt == 'Correct') {
+      answera_nxt = 'correct'
+    }
+    if (answerb_nxt == 'Wrong') {
+      answerb_nxt = 'wrong'
+    }
+    if (answerb_nxt == 'Correct') {
+      answerb_nxt = 'correct'
+    }
+    let answer_nxt='';
+    if(answera_nxt==answerb_nxt)
+      {
+        answer_nxt=answera_nxt;
+      }
+    else
+    {
+      const threadc = await openai.beta.threads.create();
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "user",
+          content: "description:" + description + "\n" + "code:" + code + '\n' + current_code
+        }
+      );
+  
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "assistant",
+          content: "judge whether the code outputs the correct result as the description needs.Just judge by the output user gives,description,and code,return only a single word:correct or wrong"
+        }
+      );
+      await openai.beta.threads.messages.create(
+        threadc.id,
+        {
+          role: "user",
+          content: ans_check
+        }
+      );
+      let runc_nxt = await openai.beta.threads.runs.createAndPoll(
+        threadc.id,
+        { assistant_id: assistant.id }
+      );
+      let answerc_nxt = ""
+      if (runc_nxt.status === 'completed') {
+        const messagesc = await openai.beta.threads.messages.list(
+          runc_nxt.thread_id
+        );
+        for (const message of messagesc.data.reverse()) {
+          if (message.content[0].type == 'text') {
+            //console.log(`${message.role} > ${message.content[0].text.value}`);
+            answerc_nxt = message.content[0].text.value;
+          }
+        }
+      }
+      if (answerc_nxt == 'Wrong') {
+        answerc_nxt = 'wrong'
+      }
+      if (answerc_nxt == 'Correct') {
+        answerc_nxt = 'correct'
+      }
+      console.log(answerc_nxt)
+      answer_nxt=answerc_nxt
+    }
+    if (answer_nxt=='wrong') {
+      return "Challenge-me: " + "You seem not to implement the right code. Try to modify the code and challenge again!";
+    }//right-wrong checker
+
+    await openai.beta.threads.messages.create(
+      (await performancejudger.threadx).id,
+      {
+        role: "assistant",
+        content: "Here's the description of the code and return the same type as the first response with fuzzy_tips,clear_tips,specific_tips,if_same and: aspects of metrics and explanations" + description
+      }
+    );
+    await openai.beta.threads.messages.create(
+      (await performancejudger.threadx).id,
+      {
+        role: "user",
+        content: code + '\n' + current_code
+      }
+    );
+    let x = new performancejudger;
+    console.log(x)
+    if (performancejudger.last_code + "\n" == current_code || performancejudger.last_code == current_code && performancejudger.call_time > 0) {
+
+      if (performancejudger.last_improvement == 0) {
+        return "Challenge-me: " + "Good job!Nothing to improve";
+      }
+      performancejudger.call_time++;
+      console.log(performancejudger.call_time)
+      if (performancejudger.call_time == 1) {
+        return "Challenge-me: " + performancejudger.fuzzy_tips;
+      }
+      else if (performancejudger.call_time == 2) {
+        return "Challenge-me: " + performancejudger.clear_tips;
+      }
+      else if (performancejudger.call_time == 3) {
+        return "Challenge-me: " + performancejudger.specific_tips;
+      }
+      else {
+        return "Challenge-me: No more tips,please challenge yourself with tips above!"
+      }
+    }
+    let runx = await openai.beta.threads.runs.createAndPoll(
+      (await performancejudger.threadx).id,
+      { assistant_id: (await performancejudger.assistant).id }
+    );
+    let answerx = ""
+    if (runx.status === 'completed') {
+      const messages = await openai.beta.threads.messages.list(
+        runx.thread_id
+      );
+      for (const message of messages.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          console.log(`${message.role} > ${message.content[0].text.value}`);
+          answerx = message.content[0].text.value;
+        }
+      }
+    }
+    else {
+      console.log(runx.status);
+    }
+    console.log(answerx)
+    let obj = JSON.parse(answerx);
+    if (performancejudger.last_code + "\n" == current_code || performancejudger.last_code == current_code || obj['if_same'] == 'yes' || obj['if_same'] == 'Yes') {
+      performancejudger.last_code = current_code;
+      performancejudger.last_id = id;
+      let improvement = 0;
+      for (let val in obj['performances']) {
+        console.log(obj['performances'][val])
+        if (obj['performances'][val] == 'OK') {
+          improvement = improvement + 1;
+        }
+      }
+      performancejudger.last_improvement = improvement;
+      if (improvement == 0) {
+        return "Challenge-me: " + "Good job!Nothing to improve";
+      }
+      performancejudger.call_time++;
+      console.log(performancejudger.call_time)
+      if (performancejudger.call_time == 1) {
+        performancejudger.fuzzy_tips = obj['tips']['fuzzy_tips'];
+        performancejudger.clear_tips = obj['tips']['clear_tips'];
+        performancejudger.specific_tips = obj['tips']['specific_tips'];
+        return "Challenge-me: " + performancejudger.fuzzy_tips;
+      }
+      else if (performancejudger.call_time == 2) {
+        return "Challenge-me: " + performancejudger.clear_tips;
+      }
+      else if (performancejudger.call_time == 3) {
+        return "Challenge-me: " + performancejudger.specific_tips;
+      }
+      else {
+        return "Challenge-me: No more tips,please challenge yourself with tips above!"
+      }
+    }
+    else if (performancejudger.last_code == '' || performancejudger.last_id != id || obj['if_same'] == 'first' || obj['if_same'] == 'First') {
+      performancejudger.last_code = current_code;
+      performancejudger.last_id = id;
+      performancejudger.call_time = 0;
+      let improvement = 0;
+      for (let val in obj['performances']) {
+        console.log(obj['performances'][val])
+        if (obj['performances'][val] == 'OK') {
+          improvement = improvement + 1;
+        }
+      }
+      performancejudger.last_improvement = improvement;
+      if (improvement == 0) {
+        return "Challenge-me: " + "Good job!Nothing to improve";
+      }
+      else if (improvement == 1)
+        return "Challenge-me: " + "Correct! Close to the best answer,and try to improve your code!";
+      else
+        return "Challenge-me: " + "Code is correct, and try to challange yourself with better ideas!";
+    }
+    else if (obj['if_same'] == 'no' || obj['if_same'] == 'No') {
+      performancejudger.last_code = current_code;
+      performancejudger.last_id = id;
+      performancejudger.call_time = 0;
+      let improvement = 0;
+      for (let val in obj['performances']) {
+        console.log(obj['performances'][val])
+        if (obj['performances'][val] == 'OK') {
+          improvement = improvement + 1;
+        }
+      }
+      performancejudger.last_improvement = improvement;
+      if (improvement == 0) {
+        return "Challenge-me: " + obj['improvement'] + '\n' + "Good job!Nothing to improve";
+      }
+      else if (improvement == 1)
+        return "Challenge-me: " + obj['improvement'] + '\n' + "Correct! Close to the best answer,and try to improve your code!";
+      else
+        return "Challenge-me: " + obj['improvement'] + '\n' + "Code is correct, and try to challange yourself with better ideas!";
+    }
   }
   else {
-    console.log(runx.status);
-  }
-  console.log(answerx)
-  let obj = JSON.parse(answerx);
-  if (performancejudger.last_code + "\n" == current_code || performancejudger.last_code == current_code || obj['if_same'] == 'yes' || obj['if_same'] == 'Yes') {
-    performancejudger.last_code = current_code;
-    performancejudger.last_id = id;
-    let improvement = 0;
-    for (let val in obj['performances']) {
-      console.log(obj['performances'][val])
-      if (obj['performances'][val] == 'OK') {
-        improvement = improvement + 1;
+    let ans_check = await code_checking(code, current_code);
+    if (ans_check == 'Error_for_code') {
+      return "Challenge-me: " + "Syntax/Runtime Error!Check the code and run locally again.";
+    }
+    const prompt = "You are a python code performance judger." +
+      "You need to judge the python code with the description of the code and the output and response whether the code is wrong or right." +
+      "If the code is right, judge whether the code is the best solution in time and memory usage.";
+    const assistant = await openai.beta.assistants.create({
+      name: "python code performance judger",
+      description: prompt,
+      model: "gpt-4-turbo"
+    });
+
+    const thread = await openai.beta.threads.create();
+
+    await openai.beta.threads.messages.create(
+      thread.id,
+      {
+        role: "user",
+        content: "description:" + description + "\n" + "code:" + code + '\n' + current_code
       }
-    }
-    performancejudger.last_improvement = improvement;
-    if (improvement == 0) {
-      return "AI assistant: " + "Good job!Nothing to improve";
-    }
-    performancejudger.call_time++;
-    console.log(performancejudger.call_time)
-    if (performancejudger.call_time == 1) {
-      performancejudger.fuzzy_tips = obj['tips']['fuzzy_tips'];
-      performancejudger.clear_tips = obj['tips']['clear_tips'];
-      performancejudger.specific_tips = obj['tips']['specific_tips'];
-      return "AI assistant: " + performancejudger.fuzzy_tips;
-    }
-    else if (performancejudger.call_time == 2) {
-      return "AI assistant: " + performancejudger.clear_tips;
-    }
-    else if (performancejudger.call_time == 3) {
-      return "AI assistant: " + performancejudger.specific_tips;
+    );
+    await openai.beta.threads.messages.create(
+      thread.id,
+      {
+        role: "assistant",
+        content: "judge whether the code is completed.It means the code has finished all what description needs." + '\n' +
+          "For example,if the code has lost serveral code of one function,like not updating the result or calculate answers.Return only two words:good or bad"
+      }
+    );
+    let run = await openai.beta.threads.runs.createAndPoll(
+      thread.id,
+      { assistant_id: assistant.id }
+    );
+    let answer = ""
+    if (run.status === 'completed') {
+      const messages = await openai.beta.threads.messages.list(
+        run.thread_id
+      );
+      for (const message of messages.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          //console.log(`${message.role} > ${message.content[0].text.value}`);
+          answer = message.content[0].text.value;
+        }
+      }
+
     }
     else {
-      return "AI assistant: No more tips,please challenge yourself with tips above!"
+      console.log(run.status);
     }
-  }
-  else if (performancejudger.last_code == '' || performancejudger.last_id != id || obj['if_same'] == 'first' || obj['if_same'] == 'First') {
-    performancejudger.last_code = current_code;
-    performancejudger.last_id = id;
-    performancejudger.call_time = 0;
-    let improvement = 0;
-    for (let val in obj['performances']) {
-      console.log(obj['performances'][val])
-      if (obj['performances'][val] == 'OK') {
-        improvement = improvement + 1;
+    console.log(answer)
+    if (answer == 'bad' || answer == 'Bad') {
+      return "Challenge-me: " + "It seems that you have missed some parts of the code. Please finish all the code and then challenge yourself!";
+    }//incomplete checker
+
+    await openai.beta.threads.messages.create(
+      thread.id,
+      {
+        role: "assistant",
+        content: "judge whether the code outputs the correct result as the description needs.Just judge by the output user gives,description,and code,return only a single word:correct or wrong"
+      }
+    );
+    await openai.beta.threads.messages.create(
+      thread.id,
+      {
+        role: "user",
+        content: ans_check
+      }
+    );
+    let run2 = await openai.beta.threads.runs.createAndPoll(
+      thread.id,
+      { assistant_id: assistant.id }
+    );
+    let answer2 = ""
+    if (run2.status === 'completed') {
+      const messages = await openai.beta.threads.messages.list(
+        run.thread_id
+      );
+      for (const message of messages.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          //console.log(`${message.role} > ${message.content[0].text.value}`);
+          answer2 = message.content[0].text.value;
+        }
+      }
+
+    }
+    else {
+      console.log(run.status);
+    }
+    console.log(answer2)
+    if (answer2 == 'wrong' || answer2 == 'Wrong') {
+      return "Challenge-me: " + "You seem not to implement the right code. Try to modify the code and challenge again!";
+    }//right-wrong checker
+
+    /*
+    const completion = await openai.chat.completions.create(
+    {
+      messages: [{"role": "system", "content": "You are a python code performance judger.First,calculate the time,memory usage,accuracy or any other metrics judging the code performance.Then compared with the best solution of the description of the code, judge whether the code is the best solution in time,memory usage,accuracy or any other metrics judging the code performance.Return with a json with all dimension's performance of the code.Using best and OK to judge the code,give the explanation part"},
+          {"role": "assistant", "content": "Here's the description of the code: "+description},
+          {"role": "user", "content": code+'\n'+current_code},
+          ],
+      model: "gpt-4-turbo",
+      response_format:{"type":"json_object"}
+    });
+    console.log(completion.choices[0]);
+    let obj = JSON.parse(completion.choices[0].message.content as string);
+    let improvement=0;
+    for(let val in obj)
+      {
+        console.log(obj[val])
+        if(obj[val]=='OK')
+          {
+            improvement=improvement+1;
+          }
+      }
+    if(improvement==0)
+      {
+        return "Challenge-me: "+"Good job!Nothing to improve";
+      }
+    else if(improvement==1)
+      return "Challenge-me: "+"Correct! Close to the best answer, try to improve your code!";
+    else
+      return "Challenge-me: "+"Code is correct, and try to challange yourself with better ideas!";*/
+    //
+    await openai.beta.threads.messages.create(
+      (await performancejudger.threadx).id,
+      {
+        role: "assistant",
+        content: "Here's the description of the code and return the same type as the first response with fuzzy_tips,clear_tips,specific_tips,if_same and: aspects of metrics and explanations" + description
+      }
+    );
+    await openai.beta.threads.messages.create(
+      (await performancejudger.threadx).id,
+      {
+        role: "user",
+        content: code + '\n' + current_code
+      }
+    );
+    let x = new performancejudger;
+    console.log(x)
+    if (performancejudger.last_code + "\n" == current_code || performancejudger.last_code == current_code && performancejudger.call_time > 0) {
+
+      if (performancejudger.last_improvement == 0) {
+        return "Challenge-me: " + "Good job!Nothing to improve";
+      }
+      performancejudger.call_time++;
+      console.log(performancejudger.call_time)
+      if (performancejudger.call_time == 1) {
+        return "Challenge-me: " + performancejudger.fuzzy_tips;
+      }
+      else if (performancejudger.call_time == 2) {
+        return "Challenge-me: " + performancejudger.clear_tips;
+      }
+      else if (performancejudger.call_time == 3) {
+        return "Challenge-me: " + performancejudger.specific_tips;
+      }
+      else {
+        return "Challenge-me: No more tips,please challenge yourself with tips above!"
       }
     }
-    performancejudger.last_improvement = improvement;
-    if (improvement == 0) {
-      return "AI assistant: " + "Good job!Nothing to improve";
-    }
-    else if (improvement == 1)
-      return "AI assistant: " + "Correct! Close to the best answer,and try to improve your code!";
-    else
-      return "AI assistant: " + "Code is correct, and try to challange yourself with better ideas!";
-  }
-  else if (obj['if_same'] == 'no' || obj['if_same'] == 'No') {
-    performancejudger.last_code = current_code;
-    performancejudger.last_id = id;
-    performancejudger.call_time = 0;
-    let improvement = 0;
-    for (let val in obj['performances']) {
-      console.log(obj['performances'][val])
-      if (obj['performances'][val] == 'OK') {
-        improvement = improvement + 1;
+    let runx = await openai.beta.threads.runs.createAndPoll(
+      (await performancejudger.threadx).id,
+      { assistant_id: (await performancejudger.assistant).id }
+    );
+    let answerx = ""
+    if (runx.status === 'completed') {
+      const messages = await openai.beta.threads.messages.list(
+        runx.thread_id
+      );
+      for (const message of messages.data.reverse()) {
+        if (message.content[0].type == 'text') {
+          console.log(`${message.role} > ${message.content[0].text.value}`);
+          answerx = message.content[0].text.value;
+        }
       }
     }
-    performancejudger.last_improvement = improvement;
-    if (improvement == 0) {
-      return "AI assistant: " + obj['improvement'] + '\n' + "Good job!Nothing to improve";
+    else {
+      console.log(runx.status);
     }
-    else if (improvement == 1)
-      return "AI assistant: " + obj['improvement'] + '\n' + "Correct! Close to the best answer,and try to improve your code!";
-    else
-      return "AI assistant: " + obj['improvement'] + '\n' + "Code is correct, and try to challange yourself with better ideas!";
+    console.log(answerx)
+    let obj = JSON.parse(answerx);
+    if (performancejudger.last_code + "\n" == current_code || performancejudger.last_code == current_code || obj['if_same'] == 'yes' || obj['if_same'] == 'Yes') {
+      performancejudger.last_code = current_code;
+      performancejudger.last_id = id;
+      let improvement = 0;
+      for (let val in obj['performances']) {
+        console.log(obj['performances'][val])
+        if (obj['performances'][val] == 'OK') {
+          improvement = improvement + 1;
+        }
+      }
+      performancejudger.last_improvement = improvement;
+      if (improvement == 0) {
+        return "Challenge-me: " + "Good job!Nothing to improve";
+      }
+      performancejudger.call_time++;
+      console.log(performancejudger.call_time)
+      if (performancejudger.call_time == 1) {
+        performancejudger.fuzzy_tips = obj['tips']['fuzzy_tips'];
+        performancejudger.clear_tips = obj['tips']['clear_tips'];
+        performancejudger.specific_tips = obj['tips']['specific_tips'];
+        return "Challenge-me: " + performancejudger.fuzzy_tips;
+      }
+      else if (performancejudger.call_time == 2) {
+        return "Challenge-me: " + performancejudger.clear_tips;
+      }
+      else if (performancejudger.call_time == 3) {
+        return "Challenge-me: " + performancejudger.specific_tips;
+      }
+      else {
+        return "Challenge-me: No more tips,please challenge yourself with tips above!"
+      }
+    }
+    else if (performancejudger.last_code == '' || performancejudger.last_id != id || obj['if_same'] == 'first' || obj['if_same'] == 'First') {
+      performancejudger.last_code = current_code;
+      performancejudger.last_id = id;
+      performancejudger.call_time = 0;
+      let improvement = 0;
+      for (let val in obj['performances']) {
+        console.log(obj['performances'][val])
+        if (obj['performances'][val] == 'OK') {
+          improvement = improvement + 1;
+        }
+      }
+      performancejudger.last_improvement = improvement;
+      if (improvement == 0) {
+        return "Challenge-me: " + "Good job!Nothing to improve";
+      }
+      else if (improvement == 1)
+        return "Challenge-me: " + "Correct! Close to the best answer,and try to improve your code!";
+      else
+        return "Challenge-me: " + "Code is correct, and try to challange yourself with better ideas!";
+    }
+    else if (obj['if_same'] == 'no' || obj['if_same'] == 'No') {
+      performancejudger.last_code = current_code;
+      performancejudger.last_id = id;
+      performancejudger.call_time = 0;
+      let improvement = 0;
+      for (let val in obj['performances']) {
+        console.log(obj['performances'][val])
+        if (obj['performances'][val] == 'OK') {
+          improvement = improvement + 1;
+        }
+      }
+      performancejudger.last_improvement = improvement;
+      if (improvement == 0) {
+        return "Challenge-me: " + obj['improvement'] + '\n' + "Good job!Nothing to improve";
+      }
+      else if (improvement == 1)
+        return "Challenge-me: " + obj['improvement'] + '\n' + "Correct! Close to the best answer,and try to improve your code!";
+      else
+        return "Challenge-me: " + obj['improvement'] + '\n' + "Code is correct, and try to challange yourself with better ideas!";
+    }
   }
 }
 function removeComment(cellContent: string) {
@@ -791,7 +1367,7 @@ const extension: JupyterFrontEndPlugin<void> = {
               code += nb.content.widgets[i].model.toJSON().source + '\n';
             else if (nb.content.widgets[i].model.type == 'markdown')
               description += nb.content.widgets[i].model.toJSON().source + '\n';
-          }
+          }//get code and description
           let cellContent = '';
           const currentDate = new Date();
           const formattedDateTime = currentDate.toLocaleString("en-US", {
@@ -805,25 +1381,25 @@ const extension: JupyterFrontEndPlugin<void> = {
           if (activeCell) {
             cellContent += activeCell.model.toJSON().source;
           }
-          console.log(description + cellContent);
-          cellContent = removeComment(cellContent);
+          //console.log(description + cellContent);
+          code = removeComment(code);
+          cellContent = removeComment(cellContent);//remove comments
           console.log(cellContent)
           if (activeCell) {
             const modelJson = activeCell.model.toJSON();
-            modelJson.source += "\n'''" + formattedDateTime + "\n" + "AI assistant: judging" + '\n' + "'''";
+            modelJson.source += "\n'''" + formattedDateTime + "\n" + "Challenge-me: judging" + '\n' + "'''";
             activeCell.model.sharedModel.setSource(modelJson.source.toString());
-          }
-          const judgement = await api(description, code, cellContent, id);
+          }//add waiting hints
+          const judgement = await call_gpt(description, code, cellContent, id);
           console.log(judgement);
           if (activeCell) {
-
             const modelJson = activeCell.model.toJSON();
             let lines = modelJson.source.toString();
             let line = lines.split(/\r?\n/);
             const updatedLines = line.slice(0, -2);
             modelJson.source = updatedLines.join('\n') + '\n' + (judgement as string) + "\n'''";
             activeCell.model.sharedModel.setSource(modelJson.source.toString());
-          }
+          }//change code block with judgement
         }
 
       },
